@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}评分预测 · 豆瓣电影数据分析可视化系统{% endblock %}
+{% block nav_predict %}active{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 720px;">
+    <h3>电影评分预测</h3>
+    <p style="color:#666; font-size:13px; margin-bottom:18px; line-height:1.8;">
+        基于已爬取的豆瓣 Top250 数据训练的机器学习模型（线性回归 vs 随机森林，自动择优）。
+        输入一部电影的基本信息，预测它在豆瓣的评分水平。
+    </p>
+    <div class="form-row" style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+        <div>
+            <label style="font-size:13px; color:#666;">上映年份</label>
+            <input id="in-year" type="number" value="2024" min="1900" max="2030"
+                   style="width:100%; margin-top:6px; padding:9px 12px; border:1px solid #dcdfe6; border-radius:4px;">
+        </div>
+        <div>
+            <label style="font-size:13px; color:#666;">预计评价人数</label>
+            <input id="in-votes" type="number" value="500000" min="0"
+                   style="width:100%; margin-top:6px; padding:9px 12px; border:1px solid #dcdfe6; border-radius:4px;">
+        </div>
+        <div>
+            <label style="font-size:13px; color:#666;">电影类型</label>
+            <select id="in-genre"
+                    style="width:100%; margin-top:6px; padding:9px 12px; border:1px solid #dcdfe6; border-radius:4px;">
+                <option>剧情</option><option>喜剧</option><option>爱情</option>
+                <option>科幻</option><option>动作</option><option>犯罪</option>
+                <option>动画</option><option>悬疑</option><option>惊悚</option>
+                <option>冒险</option><option>传记</option><option>奇幻</option>
+            </select>
+        </div>
+        <div>
+            <label style="font-size:13px; color:#666;">国家 / 地区</label>
+            <select id="in-country"
+                    style="width:100%; margin-top:6px; padding:9px 12px; border:1px solid #dcdfe6; border-radius:4px;">
+                <option>中国大陆</option><option>美国</option><option>日本</option>
+                <option>中国香港</option><option>韩国</option><option>法国</option>
+                <option>英国</option><option>意大利</option><option>德国</option><option>印度</option>
+            </select>
+        </div>
+    </div>
+    <button onclick="doPredict()"
+            style="margin-top:20px; padding:10px 36px; background:#4a7cf7; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:15px;">
+        开始预测
+    </button>
+
+    <div id="predict-result" style="display:none; margin-top:22px; padding:18px; background:#f5f7fa; border-radius:6px;">
+        <div style="font-size:13px; color:#666;">预测评分</div>
+        <div id="predict-score" style="font-size:44px; font-weight:bold; color:#e6a23c;">--</div>
+        <div id="predict-meta" style="font-size:12px; color:#999;"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_head %}
+<script>
+async function doPredict() {
+    const body = {
+        year: parseInt(document.getElementById('in-year').value),
+        votes: parseInt(document.getElementById('in-votes').value),
+        genre: document.getElementById('in-genre').value,
+        country: document.getElementById('in-country').value,
+    };
+    const resp = await fetch('/api/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    const box = document.getElementById('predict-result');
+    box.style.display = 'block';
+    if (data.error) {
+        document.getElementById('predict-score').textContent = '出错了';
+        document.getElementById('predict-meta').textContent = data.error;
+        return;
+    }
+    document.getElementById('predict-score').textContent = data.predicted_rating + ' 分';
+    document.getElementById('predict-meta').textContent =
+        `使用模型：${data.model_name}（测试集 R² = ${data.model_r2}）`;
+}
+</script>
+{% endblock %}

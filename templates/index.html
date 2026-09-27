@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}数据大屏 · 豆瓣电影数据分析可视化系统{% endblock %}
+{% block nav_index %}active{% endblock %}
+
+{% block content %}
+<!-- 概览卡片 -->
+<div class="grid-2" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 20px;">
+    <div class="card" style="margin-bottom:0;">
+        <h3 style="border-color:#4a7cf7;">上榜电影</h3>
+        <div style="font-size:34px; font-weight:bold; color:#4a7cf7;" id="stat-total">--</div>
+    </div>
+    <div class="card" style="margin-bottom:0;">
+        <h3 style="border-color:#67c23a;">平均评分</h3>
+        <div style="font-size:34px; font-weight:bold; color:#67c23a;" id="stat-avg">--</div>
+    </div>
+    <div class="card" style="margin-bottom:0;">
+        <h3 style="border-color:#e6a23c;">最高评分</h3>
+        <div style="font-size:34px; font-weight:bold; color:#e6a23c;" id="stat-max">--</div>
+    </div>
+    <div class="card" style="margin-bottom:0;">
+        <h3 style="border-color:#f56c6c;">总评价人数</h3>
+        <div style="font-size:34px; font-weight:bold; color:#f56c6c;" id="stat-votes">--</div>
+    </div>
+</div>
+
+<!-- 图表区 -->
+<div class="grid-2">
+    <div class="card"><h3>评分分布（0.5 分一档）</h3><div id="chart-rating" class="chart"></div></div>
+    <div class="card"><h3>各年代上榜数量与平均分</h3><div id="chart-decade" class="chart"></div></div>
+    <div class="card"><h3>国家 / 地区上榜数量 Top10</h3><div id="chart-country" class="chart"></div></div>
+    <div class="card"><h3>电影类型占比</h3><div id="chart-genre" class="chart"></div></div>
+    <div class="card"><h3>人气榜（评价人数 Top10）</h3><div id="chart-votes" class="chart"></div></div>
+    <div class="card"><h3>上榜作品最多的导演 Top10</h3><div id="chart-director" class="chart"></div></div>
+</div>
+
+<div class="card">
+    <h3>电影类型词云</h3>
+    <div id="chart-wordcloud" class="chart" style="height: 360px;"></div>
+</div>
+
+<!-- 明细表 -->
+<div class="card">
+    <h3>电影明细（支持按片名 / 导演 / 类型搜索）</h3>
+    <div style="margin-bottom: 12px;">
+        <input id="search-input" type="text" placeholder="输入关键词，如：喜剧 / 张艺谋 / 星际"
+               style="padding: 8px 12px; width: 320px; border: 1px solid #dcdfe6; border-radius: 4px;">
+        <button onclick="loadMovies()" style="padding: 8px 20px; background:#4a7cf7; color:#fff; border:none; border-radius:4px; cursor:pointer;">搜索</button>
+    </div>
+    <div style="overflow-x: auto;">
+        <table id="movie-table" style="width:100%; border-collapse: collapse; font-size: 13px;">
+            <thead>
+                <tr style="background:#f5f7fa;">
+                    <th style="padding:8px; border-bottom:1px solid #ebeef5;">排名</th>
+                    <th style="padding:8px; border-bottom:1px solid #ebeef5;">片名</th>
+                    <th style="padding:8px; border-bottom:1px solid #ebeef5;">导演</th>
+                    <th style="padding:8px; border-bottom:1px solid #ebeef5;">年份</th>
+                    <th style="padding:8px; border-bottom:1px solid #ebeef5;">国家/地区</th>
+                    <th style="padding:8px; border-bottom:1px solid #ebeef5;">主类型</th>
+                    <th style="padding:8px; border-bottom:1px solid #ebeef5;">评分</th>
+                    <th style="padding:8px; border-bottom:1px solid #ebeef5;">评价人数</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_head %}
+<script>
+// ---------- 概览卡片 ----------
+async function loadOverview() {
+    const resp = await fetch('/api/overview');
+    const data = await resp.json();
+    document.getElementById('stat-total').textContent = data.total + ' 部';
+    document.getElementById('stat-avg').textContent = data.avg_rating + ' 分';
+    document.getElementById('stat-max').textContent = data.max_rating + ' 分';
+    document.getElementById('stat-votes').textContent =
+        (data.total_votes / 100000000).toFixed(2) + ' 亿';
+}
+
+// ---------- 各图表 ----------
+async function loadCharts() {
+    const resp = await fetch('/api/charts');
+    const d = await resp.json();
+
+    // 1. 评分分布柱状图
+    const ratingChart = echarts.init(document.getElementById('chart-rating'));
+    ratingChart.setOption({
+        tooltip: { trigger: 'axis' },
+        xAxis: { type: 'category', data: d.rating_distribution.map(x => x.name) },
+        yAxis: { type: 'value', name: '电影数量' },
+        series: [{
+            type: 'bar', data: d.rating_distribution.map(x => x.value),
+            itemStyle: { color: '#4a7cf7' }, barWidth: '60%'
+        }]
+    });
+
+    // 2. 年代趋势：柱（数量）+ 线（平均分），双 Y 轴
+    const decadeChart = echarts.init(document.getElementById('chart-decade'));
+    decadeChart.setOption({
+        tooltip: { trigger: 'axis' },
+        legend: { data: ['上榜数量', '平均评分'] },
+        xAxis: { type: 'category', data: d.decade_trend.map(x => x.decade) },
+        yAxis: [
+            { type: 'value', name: '数量' },
+            { type: 'value', name: '平均分', min: 8, max: 10 }
+        ],
+        series: [
+            { name: '上榜数量', type: 'bar', data: d.decade_trend.map(x => x.count),
+              itemStyle: { color: '#91cc75' } },
+            { name: '平均评分', type: 'line', yAxisIndex: 1,
+              data: d.decade_trend.map(x => x.avg_rating),
+              itemStyle: { color: '#ee6666' }, smooth: true }
+        ]
+    });
+
+    // 3. 国家上榜数量横向条形图
+    const countryChart = echarts.init(document.getElementById('chart-country'));
+    const countryData = d.country_rank.slice().reverse();
+    countryChart.setOption({
+        tooltip: { trigger: 'axis' },
+        grid: { left: 100 },
+        xAxis: { type: 'value', name: '上榜数量' },
+        yAxis: { type: 'category', data: countryData.map(x => x.name) },
+        series: [{
+            type: 'bar', data: countryData.map(x => x.value),
+            itemStyle: { color: '#5470c6' }, barWidth: '55%',
+            label: { show: true, position: 'right' }
+        }]
+    });
+
+    // 4. 类型占比饼图
+    const genreChart = echarts.init(document.getElementById('chart-genre'));
+    genreChart.setOption({
+        tooltip: {
+            trigger: 'item',
+            formatter: p => `${p.name}：${p.value} 部（${p.percent}%）`
+        },
+        legend: { type: 'scroll', orient: 'vertical', right: 10, top: 20 },
+        series: [{
+            type: 'pie', radius: ['35%', '65%'], center: ['40%', '50%'],
+            data: d.genre_stats.map(x => ({ name: x.name, value: x.value })),
+            label: { formatter: '{b}\n{d}%' }
+        }]
+    });
+
+    // 5. 人气榜横向条形图
+    const votesChart = echarts.init(document.getElementById('chart-votes'));
+    const votesData = d.votes_rank.slice().reverse();
+    votesChart.setOption({
+        tooltip: {
+            trigger: 'axis',
+            formatter: items => {
+                const i = items[0];
+                const rating = d.votes_rank[i.dataIndex].rating;
+                return `${i.name}<br/>评价人数：${(i.value / 10000).toFixed(1)} 万<br/>评分：${rating}`;
+            }
+        },
+        grid: { left: 140 },
+        xAxis: { type: 'value', name: '评价人数' },
+        yAxis: { type: 'category', data: votesData.map(x => x.title) },
+        series: [{
+            type: 'bar', data: votesData.map(x => x.votes),
+            itemStyle: { color: '#fac858' }, barWidth: '55%',
+            label: {
+                show: true, position: 'right',
+                formatter: p => (p.value / 10000).toFixed(0) + '万'
+            }
+        }]
+    });
+
+    // 6. 导演榜横向条形图
+    const directorChart = echarts.init(document.getElementById('chart-director'));
+    const directorData = d.director_rank.slice().reverse();
+    directorChart.setOption({
+        tooltip: {
+            trigger: 'axis',
+            formatter: items => {
+                const i = items[0];
+                const info = d.director_rank[i.dataIndex];
+                return `${info.director}<br/>上榜作品：${info.count} 部<br/>平均分：${info.avg_rating}`;
+            }
+        },
+        grid: { left: 160 },
+        xAxis: { type: 'value', name: '上榜作品数' },
+        yAxis: { type: 'category', data: directorData.map(x => x.director) },
+        series: [{
+            type: 'bar', data: directorData.map(x => x.count),
+            itemStyle: { color: '#73c0de' }, barWidth: '55%',
+            label: { show: true, position: 'right' }
+        }]
+    });
+
+    // 7. 类型词云
+    const cloudChart = echarts.init(document.getElementById('chart-wordcloud'));
+    cloudChart.setOption({
+        series: [{
+            type: 'wordCloud',
+            shape: 'circle',
+            sizeRange: [14, 56],
+            rotationRange: [-45, 45],
+            data: d.wordcloud.map(x => ({ name: x.name, value: x.value }))
+        }]
+    });
+
+    // 窗口大小变化时让所有图表自适应
+    window.addEventListener('resize', () => {
+        [ratingChart, decadeChart, countryChart, genreChart,
+         votesChart, directorChart, cloudChart].forEach(c => c.resize());
+    });
+}
+
+// ---------- 明细表格 ----------
+async function loadMovies() {
+    const keyword = document.getElementById('search-input').value.trim();
+    const resp = await fetch('/api/movies?keyword=' + encodeURIComponent(keyword));
+    const movies = await resp.json();
+    const tbody = document.querySelector('#movie-table tbody');
+    tbody.innerHTML = movies.map(m => `
+        <tr>
+            <td style="padding:8px; border-bottom:1px solid #ebeef5; text-align:center;">${m.rank}</td>
+            <td style="padding:8px; border-bottom:1px solid #ebeef5;">
+                ${m.title_cn}${m.title_en ? '<br><span style="color:#999;font-size:12px;">' + m.title_en + '</span>' : ''}
+            </td>
+            <td style="padding:8px; border-bottom:1px solid #ebeef5;">${m.director}</td>
+            <td style="padding:8px; border-bottom:1px solid #ebeef5; text-align:center;">${m.year}</td>
+            <td style="padding:8px; border-bottom:1px solid #ebeef5; text-align:center;">${m.country}</td>
+            <td style="padding:8px; border-bottom:1px solid #ebeef5; text-align:center;">${m.main_genre}</td>
+            <td style="padding:8px; border-bottom:1px solid #ebeef5; text-align:center; color:#e6a23c; font-weight:bold;">${m.rating}</td>
+            <td style="padding:8px; border-bottom:1px solid #ebeef5; text-align:center;">${(m.votes / 10000).toFixed(1)} 万</td>
+        </tr>
+    `).join('');
+}
+
+// 回车快捷搜索
+document.getElementById('search-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') loadMovies();
+});
+
+loadOverview();
+loadCharts();
+loadMovies();
+</script>
+{% endblock %}
