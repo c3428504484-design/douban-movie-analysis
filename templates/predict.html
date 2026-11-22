@@ -3,11 +3,11 @@
 {% block nav_predict %}active{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 720px;">
+<div class="card" style="max-width: 860px;">
     <h3>电影评分预测</h3>
     <p style="color:#666; font-size:13px; margin-bottom:18px; line-height:1.8;">
         基于已爬取的豆瓣 Top250 数据训练的机器学习模型（线性回归 vs 随机森林，自动择优）。
-        输入一部电影的基本信息，预测它在豆瓣的评分水平。
+        输入一部电影的基本信息与剧情简介，系统会把简介中的类型线索和情感倾向一并纳入预测依据。
     </p>
     <div class="form-row" style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
         <div>
@@ -21,9 +21,10 @@
                    style="width:100%; margin-top:6px; padding:9px 12px; border:1px solid #dcdfe6; border-radius:4px;">
         </div>
         <div>
-            <label style="font-size:13px; color:#666;">电影类型</label>
+            <label style="font-size:13px; color:#666;">电影类型（可选「自动识别」由简介推断）</label>
             <select id="in-genre"
                     style="width:100%; margin-top:6px; padding:9px 12px; border:1px solid #dcdfe6; border-radius:4px;">
+                <option selected>自动识别</option>
                 <option>剧情</option><option>喜剧</option><option>爱情</option>
                 <option>科幻</option><option>动作</option><option>犯罪</option>
                 <option>动画</option><option>悬疑</option><option>惊悚</option>
@@ -40,44 +41,167 @@
             </select>
         </div>
     </div>
-    <button onclick="doPredict()"
+
+    <div style="margin-top:16px;">
+        <label style="font-size:13px; color:#666;">剧情 / 影片简介（将作为评分预测依据：识别类型线索与情感倾向）</label>
+        <textarea id="in-plot" rows="4" placeholder="例如：未来世界，人类驾驶巨型机器人与来自深海的外星怪兽作战，热血震撼的科幻史诗……"
+                  style="width:100%; margin-top:6px; padding:9px 12px; border:1px solid #dcdfe6; border-radius:4px; resize:vertical; font-family:inherit;"></textarea>
+    </div>
+
+    <!-- DeepSeek 配置区：默认收起，点击展开 -->
+    <div style="margin-top:20px; border:1px dashed #c6d4f5; border-radius:6px; padding:14px 16px; background:#f8faff;">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; color:#1f2d3d;">
+            <input type="checkbox" id="use-deepseek" onchange="toggleDeepseekConfig()">
+            启用 DeepSeek API 辅助预测（大模型独立打分，与统计模型对比参考）
+        </label>
+        <div id="deepseek-config" style="display:none; margin-top:14px; grid-template-columns:1fr 1fr; gap:14px;">
+            <div>
+                <label style="font-size:13px; color:#666;">API 地址（可配置，默认 DeepSeek 官方）</label>
+                <input id="ds-url" type="text" value="https://api.deepseek.com/chat/completions"
+                       style="width:100%; margin-top:6px; padding:8px 12px; border:1px solid #dcdfe6; border-radius:4px; font-size:13px;">
+            </div>
+            <div>
+                <label style="font-size:13px; color:#666;">模型名称</label>
+                <input id="ds-model" type="text" value="deepseek-chat"
+                       style="width:100%; margin-top:6px; padding:8px 12px; border:1px solid #dcdfe6; border-radius:4px; font-size:13px;">
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label style="font-size:13px; color:#666;">API Key（仅发往你所配置的 API 地址，不会被保存）</label>
+                <input id="ds-key" type="password" placeholder="sk-..."
+                       style="width:100%; margin-top:6px; padding:8px 12px; border:1px solid #dcdfe6; border-radius:4px; font-size:13px;">
+            </div>
+        </div>
+    </div>
+
+    <button onclick="doPredict()" id="predict-btn"
             style="margin-top:20px; padding:10px 36px; background:#4a7cf7; color:#fff; border:none; border-radius:4px; cursor:pointer; font-size:15px;">
         开始预测
     </button>
 
-    <div id="predict-result" style="display:none; margin-top:22px; padding:18px; background:#f5f7fa; border-radius:6px;">
-        <div style="font-size:13px; color:#666;">预测评分</div>
-        <div id="predict-score" style="font-size:44px; font-weight:bold; color:#e6a23c;">--</div>
-        <div id="predict-meta" style="font-size:12px; color:#999;"></div>
+    <!-- 结果区：统计模型 + DeepSeek 双通道对比 -->
+    <div id="predict-result" style="display:none; margin-top:22px;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+            <div style="padding:18px; background:#f5f7fa; border-radius:6px;">
+                <div style="font-size:13px; color:#666;">统计模型预测（随机森林 / 线性回归）</div>
+                <div id="predict-score" style="font-size:44px; font-weight:bold; color:#e6a23c;">--</div>
+                <div id="predict-meta" style="font-size:12px; color:#999;"></div>
+            </div>
+            <div id="deepseek-result-box" style="padding:18px; background:#f0f7ff; border-radius:6px; display:none;">
+                <div style="font-size:13px; color:#666;">DeepSeek AI 预测</div>
+                <div id="deepseek-score" style="font-size:44px; font-weight:bold; color:#4a7cf7;">--</div>
+                <div id="deepseek-meta" style="font-size:12px; color:#999;"></div>
+            </div>
+        </div>
+        <div id="plot-analysis" style="display:none; margin-top:14px; padding:12px 16px; background:#f9f9f9; border-radius:6px; font-size:13px; color:#666;"></div>
     </div>
 </div>
 {% endblock %}
 
-{% block extra_head %}
+{% block scripts %}
 <script>
+function toggleDeepseekConfig() {
+    const enabled = document.getElementById('use-deepseek').checked;
+    const cfg = document.getElementById('deepseek-config');
+    cfg.style.display = enabled ? 'grid' : 'none';
+}
+
 async function doPredict() {
-    const body = {
-        year: parseInt(document.getElementById('in-year').value),
-        votes: parseInt(document.getElementById('in-votes').value),
-        genre: document.getElementById('in-genre').value,
-        country: document.getElementById('in-country').value,
-    };
-    const resp = await fetch('/api/predict', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    const data = await resp.json();
-    const box = document.getElementById('predict-result');
-    box.style.display = 'block';
-    if (data.error) {
+    const year = parseInt(document.getElementById('in-year').value);
+    const votes = parseInt(document.getElementById('in-votes').value);
+    const resultBox = document.getElementById('predict-result');
+    resultBox.style.display = 'block';
+
+    // 输入为空或非法时直接提示，不发无效请求
+    if (isNaN(year) || isNaN(votes)) {
         document.getElementById('predict-score').textContent = '出错了';
-        document.getElementById('predict-meta').textContent = data.error;
+        document.getElementById('predict-meta').textContent = '请填写有效的上映年份和评价人数';
         return;
     }
-    document.getElementById('predict-score').textContent = data.predicted_rating + ' 分';
-    document.getElementById('predict-meta').textContent =
-        `使用模型：${data.model_name}（测试集 R² = ${data.model_r2}）`;
+
+    const body = {
+        year: year,
+        votes: votes,
+        genre: document.getElementById('in-genre').value,
+        country: document.getElementById('in-country').value,
+        plot: document.getElementById('in-plot').value.trim(),
+    };
+
+    const btn = document.getElementById('predict-btn');
+    btn.disabled = true;
+    btn.textContent = '预测中…';
+
+    // 通道一：统计模型预测（剧情简介参与推断与修正）
+    try {
+        const resp = await fetch('/api/predict', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        if (data.error) {
+            document.getElementById('predict-score').textContent = '出错了';
+            document.getElementById('predict-meta').textContent = data.error;
+        } else {
+            document.getElementById('predict-score').textContent = data.predicted_rating + ' 分';
+            document.getElementById('predict-meta').textContent =
+                `使用模型：${data.model_name}（测试集 R² = ${data.model_r2}），基础预测 ${data.base_rating} 分`;
+            // 展示简介分析结果
+            const pa = data.plot_analysis;
+            const analysisBox = document.getElementById('plot-analysis');
+            if (body.plot) {
+                const sentimentText = pa.sentiment > 0 ? `正面（+${pa.sentiment}）`
+                    : pa.sentiment < 0 ? `负面（${pa.sentiment}）` : '中性（0）';
+                analysisBox.style.display = 'block';
+                analysisBox.innerHTML =
+                    `📖 简介分析：识别类型 <b>${pa.genre || '未识别'}</b>` +
+                    (pa.genre_hits ? `（命中 ${pa.genre_hits} 个关键词）` : '') +
+                    `，情感倾向 <b>${sentimentText}</b>，情感修正 <b>${data.plot_adjust > 0 ? '+' : ''}${data.plot_adjust} 分</b>` +
+                    `；最终用于预测的类型：<b>${pa.genre_used}</b>（${pa.genre_source}）`;
+            } else {
+                analysisBox.style.display = 'none';
+            }
+        }
+    } catch (err) {
+        document.getElementById('predict-score').textContent = '出错了';
+        document.getElementById('predict-meta').textContent = '请求失败：' + err;
+    }
+
+    // 通道二：DeepSeek AI 预测（仅在勾选启用时调用）
+    const useDeepseek = document.getElementById('use-deepseek').checked;
+    const dsBox = document.getElementById('deepseek-result-box');
+    if (useDeepseek) {
+        dsBox.style.display = 'block';
+        document.getElementById('deepseek-score').textContent = '…';
+        document.getElementById('deepseek-meta').textContent = 'DeepSeek 思考中，可能需要十几秒…';
+        try {
+            const dsBody = Object.assign({}, body, {
+                api_url: document.getElementById('ds-url').value.trim(),
+                api_key: document.getElementById('ds-key').value.trim(),
+                model: document.getElementById('ds-model').value.trim(),
+            });
+            const dsResp = await fetch('/api/predict/deepseek', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(dsBody),
+            });
+            const dsData = await dsResp.json();
+            if (dsData.error) {
+                document.getElementById('deepseek-score').textContent = '失败';
+                document.getElementById('deepseek-meta').textContent = dsData.error;
+            } else {
+                document.getElementById('deepseek-score').textContent = dsData.rating + ' 分';
+                document.getElementById('deepseek-meta').textContent = '模型原文：' + dsData.raw;
+            }
+        } catch (err) {
+            document.getElementById('deepseek-score').textContent = '失败';
+            document.getElementById('deepseek-meta').textContent = '请求失败：' + err;
+        }
+    } else {
+        dsBox.style.display = 'none';
+    }
+
+    btn.disabled = false;
+    btn.textContent = '开始预测';
 }
 </script>
 {% endblock %}

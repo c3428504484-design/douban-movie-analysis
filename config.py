@@ -1,18 +1,22 @@
 """
 全局配置文件
 集中管理数据库连接等参数，修改一处即可全局生效。
+敏感信息（数据库密码、密钥）一律从环境变量读取，不写入代码，
+避免提交到公开仓库造成泄露。
 """
+import os
 
 
 class Config:
     """项目全局配置类"""
 
     # ---- MySQL 数据库连接配置 ----
-    DB_HOST = "127.0.0.1"
-    DB_PORT = 3306
-    DB_USER = "root"
-    DB_PASSWORD = "060521"          # ← 改成你自己的 MySQL 密码
-    DB_NAME = "douban_movie"
+    DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
+    DB_PORT = int(os.getenv("DB_PORT", "3306"))
+    DB_USER = os.getenv("DB_USER", "root")
+    # 密码从环境变量 DB_PASSWORD 读取，未设置时为空串
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+    DB_NAME = os.getenv("DB_NAME", "douban_movie")
     DB_CHARSET = "utf8mb4"
 
     # ---- 爬虫配置 ----
@@ -22,9 +26,10 @@ class Config:
     SPIDER_MAX_RETRY = 3            # 单页最大重试次数
 
     # ---- Flask 配置 ----
-    FLASK_HOST = "127.0.0.1"
-    FLASK_PORT = 5000
-    SECRET_KEY = "douban-movie-analysis-2026"
+    FLASK_HOST = os.getenv("FLASK_HOST", "127.0.0.1")
+    FLASK_PORT = int(os.getenv("FLASK_PORT", "5000"))
+    # 密钥从环境变量 SECRET_KEY 读取，未设置时使用开发默认值（生产环境请务必覆盖）
+    SECRET_KEY = os.getenv("SECRET_KEY", "change-me-in-production")
 
     # ---- 文件路径 ----
     RAW_DATA_PATH = "data/movies_raw.csv"       # 爬虫原始数据

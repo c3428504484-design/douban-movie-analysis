@@ -3,23 +3,31 @@
 {% block nav_index %}active{% endblock %}
 
 {% block content %}
+<!-- 加载失败横幅：接口异常时显示，避免整页静默空白 -->
+<div id="error-banner" style="display:none; background:#fef0f0; color:#f56c6c; border:1px solid #fde2e2;
+     border-radius:6px; padding:12px 16px; margin-bottom:16px; font-size:14px;">
+    数据加载失败，请确认后端服务与 MySQL 已启动。
+    <button onclick="location.reload()" style="margin-left:12px; padding:4px 14px; background:#f56c6c;
+            color:#fff; border:none; border-radius:4px; cursor:pointer;">重新加载</button>
+</div>
+
 <!-- 概览卡片 -->
 <div class="grid-2" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 20px;">
     <div class="card" style="margin-bottom:0;">
         <h3 style="border-color:#4a7cf7;">上榜电影</h3>
-        <div style="font-size:34px; font-weight:bold; color:#4a7cf7;" id="stat-total">--</div>
+        <div style="font-size:34px; font-weight:bold; color:#4a7cf7;" id="stat-total">加载中…</div>
     </div>
     <div class="card" style="margin-bottom:0;">
         <h3 style="border-color:#67c23a;">平均评分</h3>
-        <div style="font-size:34px; font-weight:bold; color:#67c23a;" id="stat-avg">--</div>
+        <div style="font-size:34px; font-weight:bold; color:#67c23a;" id="stat-avg">加载中…</div>
     </div>
     <div class="card" style="margin-bottom:0;">
         <h3 style="border-color:#e6a23c;">最高评分</h3>
-        <div style="font-size:34px; font-weight:bold; color:#e6a23c;" id="stat-max">--</div>
+        <div style="font-size:34px; font-weight:bold; color:#e6a23c;" id="stat-max">加载中…</div>
     </div>
     <div class="card" style="margin-bottom:0;">
         <h3 style="border-color:#f56c6c;">总评价人数</h3>
-        <div style="font-size:34px; font-weight:bold; color:#f56c6c;" id="stat-votes">--</div>
+        <div style="font-size:34px; font-weight:bold; color:#f56c6c;" id="stat-votes">加载中…</div>
     </div>
 </div>
 
@@ -34,8 +42,15 @@
 </div>
 
 <div class="card">
+    <h3>评分 × 人气散点（每点一部电影）</h3>
+    <div id="chart-scatter" class="chart" style="height: 380px;"></div>
+</div>
+
+<div class="card">
     <h3>电影类型词云</h3>
-    <div id="chart-wordcloud" class="chart" style="height: 360px;"></div>
+    <div id="chart-wordcloud" style="min-height: 300px; padding: 20px; text-align: center;
+         display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px 18px;">
+    </div>
 </div>
 
 <!-- 明细表 -->
@@ -66,27 +81,59 @@
 </div>
 {% endblock %}
 
-{% block extra_head %}
+{% block scripts %}
 <script>
+// ---------- 通用工具 ----------
+// 单个图表渲染失败时，在该图表区域内提示，绝不影响其他模块
+function renderChart(elementId, optionBuilder) {
+    const el = document.getElementById(elementId);
+    try {
+        const chart = echarts.init(el);
+        chart.setOption(optionBuilder());
+        return chart;
+    } catch (err) {
+        console.error(elementId, err);
+        el.innerHTML = '<div style="color:#c0c4cc; text-align:center; padding-top:140px; font-size:13px;">该图表渲染失败</div>';
+        return null;
+    }
+}
+
+function showErrorBanner() {
+    document.getElementById('error-banner').style.display = 'block';
+}
+
 // ---------- 概览卡片 ----------
 async function loadOverview() {
-    const resp = await fetch('/api/overview');
-    const data = await resp.json();
-    document.getElementById('stat-total').textContent = data.total + ' 部';
-    document.getElementById('stat-avg').textContent = data.avg_rating + ' 分';
-    document.getElementById('stat-max').textContent = data.max_rating + ' 分';
-    document.getElementById('stat-votes').textContent =
-        (data.total_votes / 100000000).toFixed(2) + ' 亿';
+    try {
+        const resp = await fetch('/api/overview');
+        const data = await resp.json();
+        document.getElementById('stat-total').textContent = data.total + ' 部';
+        document.getElementById('stat-avg').textContent = data.avg_rating + ' 分';
+        document.getElementById('stat-max').textContent = data.max_rating + ' 分';
+        document.getElementById('stat-votes').textContent =
+            (data.total_votes / 100000000).toFixed(2) + ' 亿';
+    } catch (err) {
+        ['stat-total', 'stat-avg', 'stat-max', 'stat-votes']
+            .forEach(id => document.getElementById(id).textContent = '--');
+        showErrorBanner();
+    }
 }
 
 // ---------- 各图表 ----------
 async function loadCharts() {
-    const resp = await fetch('/api/charts');
-    const d = await resp.json();
+    let d;
+    try {
+        const resp = await fetch('/api/charts');
+        d = await resp.json();
+    } catch (err) {
+        showErrorBanner();
+        return;
+    }
+
+    const charts = [];
 
     // 1. 评分分布柱状图
-    const ratingChart = echarts.init(document.getElementById('chart-rating'));
-    ratingChart.setOption({
+    charts.push(renderChart('chart-rating', () => ({
         tooltip: { trigger: 'axis' },
         xAxis: { type: 'category', data: d.rating_distribution.map(x => x.name) },
         yAxis: { type: 'value', name: '电影数量' },
@@ -94,11 +141,10 @@ async function loadCharts() {
             type: 'bar', data: d.rating_distribution.map(x => x.value),
             itemStyle: { color: '#4a7cf7' }, barWidth: '60%'
         }]
-    });
+    })));
 
     // 2. 年代趋势：柱（数量）+ 线（平均分），双 Y 轴
-    const decadeChart = echarts.init(document.getElementById('chart-decade'));
-    decadeChart.setOption({
+    charts.push(renderChart('chart-decade', () => ({
         tooltip: { trigger: 'axis' },
         legend: { data: ['上榜数量', '平均评分'] },
         xAxis: { type: 'category', data: d.decade_trend.map(x => x.decade) },
@@ -113,12 +159,11 @@ async function loadCharts() {
               data: d.decade_trend.map(x => x.avg_rating),
               itemStyle: { color: '#ee6666' }, smooth: true }
         ]
-    });
+    })));
 
     // 3. 国家上榜数量横向条形图
-    const countryChart = echarts.init(document.getElementById('chart-country'));
     const countryData = d.country_rank.slice().reverse();
-    countryChart.setOption({
+    charts.push(renderChart('chart-country', () => ({
         tooltip: { trigger: 'axis' },
         grid: { left: 100 },
         xAxis: { type: 'value', name: '上榜数量' },
@@ -128,11 +173,10 @@ async function loadCharts() {
             itemStyle: { color: '#5470c6' }, barWidth: '55%',
             label: { show: true, position: 'right' }
         }]
-    });
+    })));
 
     // 4. 类型占比饼图
-    const genreChart = echarts.init(document.getElementById('chart-genre'));
-    genreChart.setOption({
+    charts.push(renderChart('chart-genre', () => ({
         tooltip: {
             trigger: 'item',
             formatter: p => `${p.name}：${p.value} 部（${p.percent}%）`
@@ -143,17 +187,16 @@ async function loadCharts() {
             data: d.genre_stats.map(x => ({ name: x.name, value: x.value })),
             label: { formatter: '{b}\n{d}%' }
         }]
-    });
+    })));
 
-    // 5. 人气榜横向条形图
-    const votesChart = echarts.init(document.getElementById('chart-votes'));
+    // 5. 人气榜横向条形图（tooltip 与柱子使用同一反转后的数组）
     const votesData = d.votes_rank.slice().reverse();
-    votesChart.setOption({
+    charts.push(renderChart('chart-votes', () => ({
         tooltip: {
             trigger: 'axis',
             formatter: items => {
                 const i = items[0];
-                const rating = d.votes_rank[i.dataIndex].rating;
+                const rating = votesData[i.dataIndex].rating;
                 return `${i.name}<br/>评价人数：${(i.value / 10000).toFixed(1)} 万<br/>评分：${rating}`;
             }
         },
@@ -168,17 +211,16 @@ async function loadCharts() {
                 formatter: p => (p.value / 10000).toFixed(0) + '万'
             }
         }]
-    });
+    })));
 
     // 6. 导演榜横向条形图
-    const directorChart = echarts.init(document.getElementById('chart-director'));
     const directorData = d.director_rank.slice().reverse();
-    directorChart.setOption({
+    charts.push(renderChart('chart-director', () => ({
         tooltip: {
             trigger: 'axis',
             formatter: items => {
                 const i = items[0];
-                const info = d.director_rank[i.dataIndex];
+                const info = directorData[i.dataIndex];
                 return `${info.director}<br/>上榜作品：${info.count} 部<br/>平均分：${info.avg_rating}`;
             }
         },
@@ -190,47 +232,101 @@ async function loadCharts() {
             itemStyle: { color: '#73c0de' }, barWidth: '55%',
             label: { show: true, position: 'right' }
         }]
-    });
+    })));
 
-    // 7. 类型词云
-    const cloudChart = echarts.init(document.getElementById('chart-wordcloud'));
-    cloudChart.setOption({
+    // 7. 评分 × 人气散点图
+    charts.push(renderChart('chart-scatter', () => ({
+        tooltip: {
+            trigger: 'item',
+            formatter: p => `${p.data.name}<br/>评分：${p.data.value[0]} 分<br/>评价人数：${(p.data.value[1] / 10000).toFixed(1)} 万`
+        },
+        grid: { left: 70, right: 30 },
+        xAxis: {
+            type: 'value', name: '豆瓣评分', min: 8, max: 10,
+            splitLine: { lineStyle: { type: 'dashed' } }
+        },
+        yAxis: {
+            type: 'value', name: '评价人数（万）',
+            axisLabel: { formatter: v => (v / 10000).toFixed(0) },
+            splitLine: { lineStyle: { type: 'dashed' } }
+        },
         series: [{
-            type: 'wordCloud',
-            shape: 'circle',
-            sizeRange: [14, 56],
-            rotationRange: [-45, 45],
-            data: d.wordcloud.map(x => ({ name: x.name, value: x.value }))
+            type: 'scatter',
+            symbolSize: 9,
+            data: d.scatter.map(x => ({ name: x.name, value: [x.rating, x.votes] })),
+            itemStyle: { color: 'rgba(74, 124, 247, 0.55)' }
         }]
-    });
+    })));
+
+    // 8. 类型词云：用纯 HTML/CSS 渲染（字号按词频缩放，零插件依赖，保证必出效果）
+    renderWordCloud(d.wordcloud);
 
     // 窗口大小变化时让所有图表自适应
     window.addEventListener('resize', () => {
-        [ratingChart, decadeChart, countryChart, genreChart,
-         votesChart, directorChart, cloudChart].forEach(c => c.resize());
+        charts.forEach(c => c && c.resize());
     });
 }
 
 // ---------- 明细表格 ----------
+// 外部数据来源（豆瓣页面），插入 innerHTML 前必须转义，防止 XSS / 表格错位
+function escapeHtml(text) {
+    return String(text ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+}
+
+// ---------- 类型词云（纯 HTML/CSS 实现） ----------
+function renderWordCloud(items) {
+    const box = document.getElementById('chart-wordcloud');
+    if (!items || items.length === 0) {
+        box.innerHTML = '<span style="color:#909399;">暂无词云数据</span>';
+        return;
+    }
+    // 词频最大值/最小值用于字号归一化
+    const values = items.map(x => x.value);
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+    // 词频越高字号越大、颜色越深；固定色板随机取色
+    const palette = ['#4a7cf7', '#5470c6', '#e6a23c', '#67c23a', '#f56c6c',
+                     '#73c0de', '#91cc75', '#fac858', '#ee6666', '#9a60b4'];
+    box.innerHTML = items.map((x, i) => {
+        // 字号在 14~46px 之间按词频线性映射
+        const fontSize = max === min ? 28 : 14 + Math.round((x.value - min) / (max - min) * 32);
+        const color = palette[i % palette.length];
+        return `<span style="font-size:${fontSize}px; color:${color}; font-weight:${fontSize > 30 ? 700 : 500};
+                       line-height:1.2; cursor:default;"
+                      title="${escapeHtml(x.name)}：${x.value} 次">${escapeHtml(x.name)}</span>`;
+    }).join('');
+}
+
 async function loadMovies() {
     const keyword = document.getElementById('search-input').value.trim();
-    const resp = await fetch('/api/movies?keyword=' + encodeURIComponent(keyword));
-    const movies = await resp.json();
     const tbody = document.querySelector('#movie-table tbody');
-    tbody.innerHTML = movies.map(m => `
+    try {
+        const resp = await fetch('/api/movies?keyword=' + encodeURIComponent(keyword));
+        const movies = await resp.json();
+        if (movies.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="padding:20px; text-align:center; color:#909399;">没有找到匹配的电影</td></tr>';
+            return;
+        }
+        tbody.innerHTML = movies.map(m => `
         <tr>
             <td style="padding:8px; border-bottom:1px solid #ebeef5; text-align:center;">${m.rank}</td>
             <td style="padding:8px; border-bottom:1px solid #ebeef5;">
-                ${m.title_cn}${m.title_en ? '<br><span style="color:#999;font-size:12px;">' + m.title_en + '</span>' : ''}
+                ${escapeHtml(m.title_cn)}${m.title_en ? '<br><span style="color:#999;font-size:12px;">' + escapeHtml(m.title_en) + '</span>' : ''}
             </td>
-            <td style="padding:8px; border-bottom:1px solid #ebeef5;">${m.director}</td>
+            <td style="padding:8px; border-bottom:1px solid #ebeef5;">${escapeHtml(m.director)}</td>
             <td style="padding:8px; border-bottom:1px solid #ebeef5; text-align:center;">${m.year}</td>
-            <td style="padding:8px; border-bottom:1px solid #ebeef5; text-align:center;">${m.country}</td>
-            <td style="padding:8px; border-bottom:1px solid #ebeef5; text-align:center;">${m.main_genre}</td>
+            <td style="padding:8px; border-bottom:1px solid #ebeef5; text-align:center;">${escapeHtml(m.country)}</td>
+            <td style="padding:8px; border-bottom:1px solid #ebeef5; text-align:center;">${escapeHtml(m.main_genre)}</td>
             <td style="padding:8px; border-bottom:1px solid #ebeef5; text-align:center; color:#e6a23c; font-weight:bold;">${m.rating}</td>
             <td style="padding:8px; border-bottom:1px solid #ebeef5; text-align:center;">${(m.votes / 10000).toFixed(1)} 万</td>
         </tr>
     `).join('');
+    } catch (err) {
+        tbody.innerHTML = '<tr><td colspan="8" style="padding:20px; text-align:center; color:#f56c6c;">数据加载失败</td></tr>';
+        showErrorBanner();
+    }
 }
 
 // 回车快捷搜索

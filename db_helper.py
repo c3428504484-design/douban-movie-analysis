@@ -49,5 +49,9 @@ def query_all(sql: str, params: tuple = ()) -> list:
 
 def query_one(sql: str, params: tuple = ()) -> dict | None:
     """查询单行结果，没有结果时返回 None"""
-    rows = query_all(sql + " LIMIT 1", params)
+    # 去掉结尾分号后按需补 LIMIT 1；调用方已写 LIMIT 时不重复追加
+    normalized = sql.rstrip().rstrip(";")
+    if "limit" not in normalized.lower():
+        normalized += " LIMIT 1"
+    rows = query_all(normalized, params)
     return rows[0] if rows else None

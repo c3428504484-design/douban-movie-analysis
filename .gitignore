@@ -11,3 +11,14 @@ venv/
 # 系统文件
 Thumbs.db
 .DS_Store
+
+# 运行时产物（不入库）
+model/rating_model.pkl
+data/
+
+# 环境变量文件（本地敏感信息）
+.env
+.env.local
+
+# 不再使用的第三方词云插件（已改为纯 HTML/CSS 实现）
+static/js/echarts-wordcloud.min.js

@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+{% block title %}影片查询 · 豆瓣电影数据分析可视化系统{% endblock %}
+{% block nav_movie %}active{% endblock %}
+
+{% block content %}
+<!-- 搜索区 -->
+<div class="card">
+    <h3>按电影名称查询数据分析</h3>
+    <p style="color:#666; font-size:13px; margin-bottom:14px;">
+        输入 Top250 中的片名（支持模糊匹配），查看该片的受众画像、评分定位、口碑趋势与同导演作品等多维分析。
+    </p>
+    <div style="display:flex; gap:12px;">
+        <input id="movie-name-input" type="text" placeholder="例如：肖申克的救赎 / 星际 / 千与千寻"
+               style="flex:1; padding:9px 12px; border:1px solid #dcdfe6; border-radius:4px;">
+        <button onclick="queryMovie()" id="query-btn"
+                style="padding:9px 30px; background:#4a7cf7; color:#fff; border:none; border-radius:4px; cursor:pointer;">
+            查询
+        </button>
+    </div>
+    <div id="query-error" style="display:none; margin-top:12px; color:#f56c6c; font-size:13px;"></div>
+</div>
+
+<div id="result-area" style="display:none;">
+    <!-- 基本信息 -->
+    <div class="card">
+        <h3>基本信息</h3>
+        <div style="display:flex; gap:20px; align-items:flex-start;">
+            <div style="flex:1;">
+                <div style="font-size:22px; font-weight:bold; color:#1f2d3d;" id="m-title"></div>
+                <div style="color:#999; font-size:13px; margin:4px 0 10px;" id="m-title-en"></div>
+                <div style="font-size:13px; color:#666; line-height:2;" id="m-meta"></div>
+                <div id="m-quote" style="margin-top:10px; padding:10px 14px; background:#f5f7fa;
+                     border-left:3px solid #e6a23c; color:#666; font-size:13px; font-style:italic;"></div>
+            </div>
+            <div style="text-align:center; padding:10px 18px; background:#fff7e6; border-radius:8px;">
+                <div style="font-size:12px; color:#e6a23c;">豆瓣评分</div>
+                <div style="font-size:42px; font-weight:bold; color:#e6a23c;" id="m-rating"></div>
+                <div style="font-size:12px; color:#999;" id="m-votes"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 核心指标卡 -->
+    <div class="grid-2" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 20px;">
+        <div class="card" style="margin-bottom:0;">
+            <h3 style="border-color:#4a7cf7;">Top250 排名</h3>
+            <div style="font-size:30px; font-weight:bold; color:#4a7cf7;" id="m-rank"></div>
+        </div>
+        <div class="card" style="margin-bottom:0;">
+            <h3 style="border-color:#67c23a;">评分分位</h3>
+            <div style="font-size:30px; font-weight:bold; color:#67c23a;" id="m-rating-pct"></div>
+            <div style="font-size:11px; color:#999;">评分超过该比例的上榜电影</div>
+        </div>
+        <div class="card" style="margin-bottom:0;">
+            <h3 style="border-color:#e6a23c;">热度分位</h3>
+            <div style="font-size:30px; font-weight:bold; color:#e6a23c;" id="m-votes-pct"></div>
+            <div style="font-size:11px; color:#999;">评价人数超过该比例的上榜电影</div>
+        </div>
+        <div class="card" style="margin-bottom:0;">
+            <h3 style="border-color:#f56c6c;">类型均值差</h3>
+            <div style="font-size:30px; font-weight:bold; color:#f56c6c;" id="m-genre-diff"></div>
+            <div style="font-size:11px; color:#999;">与同类型平均分的差值</div>
+        </div>
+    </div>
+
+    <!-- 图表区 -->
+    <div class="grid-2">
+        <div class="card">
+            <h3>受众人群画像（按类型推测，非真实用户数据）</h3>
+            <div id="chart-audience" class="chart"></div>
+        </div>
+        <div class="card">
+            <h3>评分定位（本片在 Top250 评分分布中的位置）</h3>
+            <div id="chart-position" class="chart"></div>
+        </div>
+        <div class="card">
+            <h3>评分对比（本片 vs 同类型 / 同年代 / 全体）</h3>
+            <div id="chart-compare" class="chart"></div>
+        </div>
+        <div class="card">
+            <h3>口碑趋势（同类型影片各年代平均分走势）</h3>
+            <div id="chart-trend" class="chart"></div>
+        </div>
+    </div>
+
+    <!-- 同导演作品 + 相似推荐 -->
+    <div class="grid-2">
+        <div class="card">
+            <h3>同导演其他上榜作品</h3>
+            <div id="director-works" style="font-size:13px;"></div>
+        </div>
+        <div class="card">
+            <h3>相似电影推荐</h3>
+            <div id="similar-list" style="font-size:13px;"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function escapeHtml(text) {
+    return String(text ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+}
+
+// 单图表失败不影响其他模块
+function renderChart(elementId, optionBuilder) {
+    const el = document.getElementById(elementId);
+    try {
+        const chart = echarts.init(el);
+        chart.setOption(optionBuilder());
+        return chart;
+    } catch (err) {
+        console.error(elementId, err);
+        el.innerHTML = '<div style="color:#c0c4cc; text-align:center; padding-top:140px; font-size:13px;">该图表渲染失败</div>';
+        return null;
+    }
+}
+
+let pageCharts = [];
+
+async function queryMovie() {
+    const name = document.getElementById('movie-name-input').value.trim();
+    const errBox = document.getElementById('query-error');
+    if (!name) {
+        errBox.style.display = 'block';
+        errBox.textContent = '请先输入电影名称';
+        return;
+    }
+    const btn = document.getElementById('query-btn');
+    btn.disabled = true;
+    btn.textContent = '查询中…';
+    errBox.style.display = 'none';
+
+    let d;
+    try {
+        const resp = await fetch('/api/movie/detail?name=' + encodeURIComponent(name));
+        d = await resp.json();
+        if (d.error) {
+            errBox.style.display = 'block';
+            errBox.textContent = d.error;
+            document.getElementById('result-area').style.display = 'none';
+            btn.disabled = false;
+            btn.textContent = '查询';
+            return;
+        }
+    } catch (err) {
+        errBox.style.display = 'block';
+        errBox.textContent = '请求失败：' + err;
+        btn.disabled = false;
+        btn.textContent = '查询';
+        return;
+    }
+
+    renderResult(d);
+    btn.disabled = false;
+    btn.textContent = '查询';
+}
+
+function renderResult(d) {
+    document.getElementById('result-area').style.display = 'block';
+    // 切换查询对象时销毁旧图表，防止重复初始化报错
+    pageCharts.forEach(c => c && c.dispose());
+    pageCharts = [];
+
+    const m = d.movie;
+
+    // ---- 基本信息 ----
+    document.getElementById('m-title').textContent = m.title_cn;
+    document.getElementById('m-title-en').textContent = m.title_en || '';
+    document.getElementById('m-meta').innerHTML =
+        `导演：${escapeHtml(m.director) || '未知'}<br>` +
+        `主演：${escapeHtml(m.actors) || '未知'}<br>` +
+        `年份 / 地区 / 类型：${m.year} · ${escapeHtml(m.country)} · ${escapeHtml(m.genre)}`;
+    document.getElementById('m-quote').textContent = m.quote ? `「${m.quote}」` : '（本片无一句话影评）';
+    document.getElementById('m-rating').textContent = m.rating;
+    document.getElementById('m-votes').textContent = (m.votes / 10000).toFixed(1) + ' 万人评价';
+
+    // ---- 指标卡 ----
+    document.getElementById('m-rank').textContent = 'No.' + m.rank;
+    document.getElementById('m-rating-pct').textContent = d.percentile.rating + '%';
+    document.getElementById('m-votes-pct').textContent = d.percentile.votes + '%';
+    const diff = (d.compare.self - d.compare.genre_avg).toFixed(2);
+    document.getElementById('m-genre-diff').textContent = (diff > 0 ? '+' : '') + diff;
+
+    // ---- 受众画像（饼图） ----
+    pageCharts.push(renderChart('chart-audience', () => ({
+        tooltip: { trigger: 'item', formatter: '{b}：{c}%（{d}%）' },
+        legend: { orient: 'vertical', right: 10, top: 'center' },
+        series: [{
+            type: 'pie', radius: ['30%', '62%'], center: ['38%', '50%'],
+            data: Object.entries(d.audience).map(([k, v]) => ({ name: k, value: v })),
+            label: { formatter: '{b}\n{c}%' }
+        }]
+    })));
+
+    // ---- 评分定位（高亮本片所在档位） ----
+    pageCharts.push(renderChart('chart-position', () => ({
+        tooltip: { trigger: 'axis' },
+        xAxis: { type: 'category', data: d.rating_dist.map(x => x.name) },
+        yAxis: { type: 'value', name: '电影数量' },
+        series: [{
+            type: 'bar',
+            data: d.rating_dist.map(x => ({
+                value: x.value,
+                itemStyle: { color: x.name === d.rating_bucket ? '#f56c6c' : '#c6d4f5' }
+            })),
+            barWidth: '55%'
+        }],
+        graphic: [{
+            type: 'text', right: 20, top: 10,
+            style: { text: `红色档位 = 本片（${d.rating_bucket}）`, fill: '#f56c6c', fontSize: 12 }
+        }]
+    })));
+
+    // ---- 评分对比 ----
+    pageCharts.push(renderChart('chart-compare', () => ({
+        tooltip: { trigger: 'axis' },
+        grid: { left: 110 },
+        xAxis: { type: 'value', name: '评分', min: 8, max: 10 },
+        yAxis: {
+            type: 'category',
+            data: ['全体 Top250 均值', `${d.compare.decade} 年代均值`,
+                   `同类型（${d.compare.genre}）均值`, '本片']
+        },
+        series: [{
+            type: 'bar',
+            data: [
+                { value: d.compare.overall_avg, itemStyle: { color: '#c0c4cc' } },
+                { value: d.compare.decade_avg, itemStyle: { color: '#91cc75' } },
+                { value: d.compare.genre_avg, itemStyle: { color: '#5470c6' } },
+                { value: d.compare.self, itemStyle: { color: '#e6a23c' } }
+            ],
+            barWidth: '50%',
+            label: { show: true, position: 'right' }
+        }]
+    })));
+
+    // ---- 口碑趋势（同类型年代走势） ----
+    pageCharts.push(renderChart('chart-trend', () => ({
+        tooltip: {
+            trigger: 'axis',
+            formatter: items => {
+                const i = items[0];
+                const row = d.genre_trend[i.dataIndex];
+                return `${row.decade}<br/>${d.compare.genre}类平均评分：${row.avg_rating}<br/>上榜数量：${row.count} 部`;
+            }
+        },
+        xAxis: { type: 'category', data: d.genre_trend.map(x => x.decade) },
+        yAxis: { type: 'value', name: '平均评分', min: 8, max: 10 },
+        series: [{
+            type: 'line', smooth: true,
+            data: d.genre_trend.map(x => x.avg_rating),
+            itemStyle: { color: '#ee6666' },
+            areaStyle: { color: 'rgba(238,102,102,0.12)' }
+        }]
+    })));
+
+    // ---- 同导演作品 ----
+    const worksBox = document.getElementById('director-works');
+    if (d.director_works.length === 0) {
+        worksBox.innerHTML = '<span style="color:#909399;">该导演在 Top250 中仅此一部作品</span>';
+    } else {
+        worksBox.innerHTML = d.director_works.map(w => `
+            <div style="display:flex; justify-content:space-between; padding:9px 12px; margin-bottom:6px;
+                        background:#f5f7fa; border-radius:5px;">
+                <span>${escapeHtml(w.title_cn)} <span style="color:#999;">（${w.year}）</span></span>
+                <b style="color:#e6a23c;">${w.rating}</b>
+            </div>
+        `).join('');
+    }
+
+    // ---- 相似推荐 ----
+    const simBox = document.getElementById('similar-list');
+    if (!d.similar || d.similar.length === 0) {
+        simBox.innerHTML = '<span style="color:#909399;">暂无相似推荐</span>';
+    } else {
+        simBox.innerHTML = d.similar.map(s => `
+            <div style="display:flex; justify-content:space-between; padding:9px 12px; margin-bottom:6px;
+                        background:#f5f7fa; border-radius:5px;">
+                <span>${escapeHtml(s.title_cn)}
+                    <span style="color:#999; font-size:12px;"> ${s.year} · ${escapeHtml(s.genre)}</span>
+                </span>
+                <span><b style="color:#e6a23c;">${s.rating}</b>
+                    <span style="color:#999; font-size:12px;"> · 相似度 ${(s.similarity * 100).toFixed(0)}%</span>
+                </span>
+            </div>
+        `).join('');
+    }
+
+    window.addEventListener('resize', () => pageCharts.forEach(c => c && c.resize()));
+    document.getElementById('result-area').scrollIntoView({ behavior: 'smooth' });
+}
+
+document.getElementById('movie-name-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') queryMovie();
+});
+</script>
+{% endblock %}

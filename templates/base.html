@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}豆瓣电影数据分析可视化系统{% endblock %}</title>
     <script src="{{ url_for('static', filename='js/echarts.min.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/echarts-wordcloud.min.js') }}"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -41,11 +40,13 @@
     <nav class="navbar">
         <span class="brand">🎬 豆瓣电影数据分析可视化系统</span>
         <a href="/" class="{% block nav_index %}{% endblock %}">数据大屏</a>
+        <a href="/movie" class="{% block nav_movie %}{% endblock %}">影片查询</a>
         <a href="/predict" class="{% block nav_predict %}{% endblock %}">评分预测</a>
         <a href="/recommend" class="{% block nav_recommend %}{% endblock %}">相似推荐</a>
     </nav>
     <div class="container">
         {% block content %}{% endblock %}
     </div>
+    {% block scripts %}{% endblock %}
 </body>
 </html>

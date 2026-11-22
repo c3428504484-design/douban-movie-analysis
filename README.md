@@ -18,7 +18,9 @@ douban-movie-analysis/
 │   └── douban_spider.py    # 豆瓣 Top250 爬虫
 ├── model/
 │   ├── rating_model.py     # 评分预测模型（线性回归 vs 随机森林）
-│   └── recommender.py      # 相似电影推荐（余弦相似度）
+│   ├── recommender.py      # 相似电影推荐（余弦相似度）
+│   ├── plot_analyzer.py    # 剧情简介分析（类型推断 + 情感倾向）
+│   └── deepseek_client.py  # DeepSeek API 辅助预测代理
 ├── sql/
 │   └── douban_movie.sql    # 建表 + 数据 SQL 脚本（免爬虫直接导入）
 ├── data/
@@ -34,8 +36,9 @@ douban-movie-analysis/
 |------|------|
 | 数据采集 | 爬取豆瓣电影 Top250 全部 250 部（带重试、随机延时防封） |
 | 数据清洗 | 去重、字段规整、类型转换、缺失处理 |
-| 数据可视化 | 评分分布、年代趋势、国家/地区榜、类型占比、人气榜、导演榜、类型词云 |
-| 评分预测 | 机器学习模型，输入年份/类型/国家/热度预测评分 |
+| 数据可视化 | 评分分布、年代趋势、国家/地区榜、类型占比、人气榜、导演榜、评分×人气散点、类型词云（单图表失败不影响整页） |
+| 影片查询 | 按片名查询：基本信息、评分/热度分位、受众画像、评分定位、评分对比、同类型口碑趋势、同导演作品、相似推荐 |
+| 评分预测 | 机器学习模型 + 剧情简介分析（识别类型线索与情感倾向作为预测依据）；可选接入 DeepSeek API 大模型辅助预测（API 地址/Key/模型均可配置） |
 | 相似推荐 | 类型标签余弦相似度，"看过这部 → 推荐这几部" |
 | 明细检索 | 按片名 / 导演 / 类型模糊搜索 |
 
@@ -54,15 +57,38 @@ pip install -r requirements.txt
 
 ### 3. 配置数据库
 
-编辑 `config.py`，把 `DB_PASSWORD` 改成你自己的 MySQL 密码：
+项目通过**环境变量**读取数据库连接信息（避免密码写死在代码里）。运行前设置：
 
-```python
-DB_HOST = "127.0.0.1"
-DB_PORT = 3306
-DB_USER = "root"
-DB_PASSWORD = "你的密码"    # ← 只需改这一行
-DB_NAME = "douban_movie"
+```bash
+# Linux / macOS
+export DB_PASSWORD="你的MySQL密码"
+export DB_USER="root"          # 可选，默认 root
+export DB_HOST="127.0.0.1"     # 可选，默认 127.0.0.1
+
+# Windows PowerShell
+$env:DB_PASSWORD = "你的MySQL密码"
 ```
+
+也可以在项目根目录创建 `.env` 文件（已被 .gitignore 排除，不会提交）：
+
+```
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=你的MySQL密码
+DB_NAME=douban_movie
+```
+
+可配置的环境变量一览：
+
+| 变量名 | 说明 | 默认值 |
+|--------|------|--------|
+| `DB_HOST` | MySQL 主机 | `127.0.0.1` |
+| `DB_PORT` | MySQL 端口 | `3306` |
+| `DB_USER` | 数据库用户名 | `root` |
+| `DB_PASSWORD` | 数据库密码（必填） | 空 |
+| `DB_NAME` | 数据库名 | `douban_movie` |
+| `SECRET_KEY` | Flask 密钥（生产环境请覆盖） | `change-me-in-production` |
 
 ### 4. 初始化数据（二选一）
 
